@@ -1,0 +1,347 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cneura-core
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-loader-sa
+  namespace: cneura-core
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-master-key
+  namespace: cneura-core
+type: Opaque
+data:
+  master.key: NGQ0YjZmNTRjZTFiZmFjYTdkMWI5ZTYzY2JhN2NjNjAwODk2MGU2MjEyMjUwODlmMGUxMzYyYWFhN2FmMWQ5ZQ==   # 4d4b6f54ce1bfaca7d1b9e63cba7cc6008960e621225089f0e1362aaa7af1d9e
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+  namespace: cneura-core
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: cneura-core
+  labels: 
+    app: mongodb 
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: mongodb 
+  template:
+    metadata:
+      labels: 
+        app: mongodb 
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+        - name: mongo-data
+          persistentVolumeClaim:
+            claimName: mongo-pvc
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongodb_username=MONGO_INITDB_ROOT_USERNAME,cneura-core:mongodb_password=MONGO_INITDB_ROOT_PASSWORD,cneura-core:auth_db=MONGO_INITDB_DATABASE"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+
+      containers:
+        - name: mongodb
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+            - name: mongo-data
+              mountPath: /data/db
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              if [ -f /secrets/.env ]; then
+                echo "🚀 Loading secrets from /secrets/.env"
+                set -a; . /secrets/.env; set +a
+              fi
+              exec /usr/local/bin/docker-entrypoint.sh mongod --bind_ip_all
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: cneura-core
+spec:
+  selector: 
+    app: mongodb 
+  ports:
+    - port: 27017
+      targetPort: 27017
+      name: mongo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-express
+  namespace: cneura-core
+  labels: 
+    app: mongo-express 
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: mongo-express 
+  template:
+    metadata:
+      labels: 
+        app: mongo-express 
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongodb_username=ME_CONFIG_MONGODB_ADMINUSERNAME,cneura-core:mongodb_password=ME_CONFIG_MONGODB_ADMINPASSWORD"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: mongo-express
+          image: mongo-express:latest
+          ports:
+            - containerPort: 8081
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          env:
+            - name: ME_CONFIG_MONGODB_SERVER
+              value: "mongodb"
+            - name: ME_CONFIG_BASICAUTH
+              value: "false"
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              if [ -f /secrets/.env ]; then
+                echo "🚀 Loading secrets from /secrets/.env"
+                set -a; . /secrets/.env; set +a
+              fi
+              # Start mongo-express (binary is on PATH)
+              exec mongo-express
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo-express
+  namespace: cneura-core
+spec:
+  selector: 
+    app: mongo-express 
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: cneura-core
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: cneura-core
+  labels: 
+    app: postgres 
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: postgres 
+  template:
+    metadata:
+      labels: 
+        app: postgres 
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:postgres_username=POSTGRES_USER,cneura-core:postgres_password=POSTGRES_PASSWORD,cneura-core:postgres_db=POSTGRES_DB"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: postgres
+          image: ankane/pgvector:latest
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              if [ -f /secrets/.env ]; then
+                echo "🚀 Loading secrets from /secrets/.env"
+                set -a; . /secrets/.env; set +a
+              fi
+              exec /usr/local/bin/docker-entrypoint.sh postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: cneura-core
+spec:
+  selector: 
+    app: postgres 
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  namespace: cneura-core
+  labels: 
+    app: chromadb 
+spec:
+  replicas: 1
+  selector:
+    matchLabels: 
+      app: chromadb 
+  template:
+    metadata:
+      labels: 
+        app: chromadb 
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:postgres_username=POSTGRES_USER,cneura-core:postgres_password=POSTGRES_PASSWORD,cneura-core:postgres_db=POSTGRES_DATABASE"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: chromadb
+          image: ghcr.io/chroma-core/chroma:latest
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          env:
+            - name: IS_PERSISTENT
+              value: "TRUE"
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+            - name: ALLOW_RESET
+              value: "TRUE"
+            - name: CHROMA_SERVER_HOST
+              value: "0.0.0.0"
+            - name: CHROMA_SERVER_HTTP_PORT
+              value: "8000"
+            - name: CHROMA_DB_IMPL
+              value: "postgres"
+            - name: POSTGRES_HOST
+              value: "postgres"
+            - name: POSTGRES_PORT
+              value: "5432"
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              if [ -f /secrets/.env ]; then
+                echo "🚀 Loading secrets from /secrets/.env"
+                set -a; . /secrets/.env; set +a
+              fi
+              exec chroma run --host 0.0.0.0 --port 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chromadb
+  namespace: cneura-core
+spec:
+  selector: 
+    app: chromadb 
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
