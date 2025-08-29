@@ -60,7 +60,7 @@ spec:
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:mongodb_username=MONGO_INITDB_ROOT_USERNAME,cneura-core:mongodb_password=MONGO_INITDB_ROOT_PASSWORD,cneura-core:auth_db=MONGO_INITDB_DATABASE"
+              value: "cneura-core:mongodb-username=MONGO_INITDB_ROOT_USERNAME,cneura-core:mongodb-password=MONGO_INITDB_ROOT_PASSWORD,cneura-core:auth-db=MONGO_INITDB_DATABASE"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -130,7 +130,7 @@ spec:
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:mongodb_username=ME_CONFIG_MONGODB_ADMINUSERNAME,cneura-core:mongodb_password=ME_CONFIG_MONGODB_ADMINPASSWORD"
+              value: "cneura-core:mongodb-username=ME_CONFIG_MONGODB_ADMINUSERNAME,cneura-core:mongodb-password=ME_CONFIG_MONGODB_ADMINPASSWORD"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -218,7 +218,7 @@ spec:
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:postgres_username=POSTGRES_USER,cneura-core:postgres_password=POSTGRES_PASSWORD,cneura-core:postgres_db=POSTGRES_DB"
+              value: "cneura-core:postgres-username=POSTGRES_USER,cneura-core:postgres-password=POSTGRES_PASSWORD,cneura-core:postgres-db=POSTGRES_DB"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -288,7 +288,7 @@ spec:
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:postgres_username=POSTGRES_USER,cneura-core:postgres_password=POSTGRES_PASSWORD,cneura-core:postgres_db=POSTGRES_DATABASE"
+              value: "cneura-core:postgres-username=POSTGRES_USER,cneura-core:postgres-password=POSTGRES_PASSWORD,cneura-core:postgres-db=POSTGRES_DATABASE"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
