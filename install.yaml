@@ -200,7 +200,7 @@ spec:
                 set -a; . /secrets/.env; set +a
               fi
               # Start mongo-express (binary is on PATH)
-              exec mongo-express
+              exec tini -- node app
           livenessProbe:
             tcpSocket:
               port: 8081
