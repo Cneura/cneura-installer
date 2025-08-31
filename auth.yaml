@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cneura-auth
+  namespace: cneura-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cneura-auth
+  template:
+    metadata:
+      labels:
+        app: cneura-auth
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:auth-db=DB_NAME"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: auth
+          image: shehandezen/cneura-auth:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 50051
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cneura-auth-svc
+  namespace: cneura-core
+spec:
+  selector:
+    app: cneura-auth
+  ports:
+    - port: 50051
+      targetPort: 50051
+      protocol: TCP
+  type: ClusterIP
