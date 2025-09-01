@@ -84,6 +84,9 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 50051
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
           livenessProbe:
             tcpSocket:
               port: 50051
