@@ -32,12 +32,3 @@ roleRef:
   kind: Role
   name: vault-loader-role
   apiGroup: rbac.authorization.k8s.io
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: vault-master-key
-  namespace: cneura-core
-type: Opaque
-data:
-  master.key: NGQ0YjZmNTRjZTFiZmFjYTdkMWI5ZTYzY2JhN2NjNjAwODk2MGU2MjEyMjUwODlmMGUxMzYyYWFhN2FmMWQ5ZQ==   # 4d4b6f54ce1bfaca7d1b9e63cba7cc6008960e621225089f0e1362aaa7af1d9e
