@@ -22,7 +22,7 @@ spec:
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:llm-log-db=DB_NAME,cneura-core:llm-priv-key=PRIV_KEY,cneura-core:llm-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT,cneura-core:google-gemini-key=GEMINI_API_KEY"
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:llm-log-db=DB_NAME,cneura-core:llm-priv-key=PRIV_KEY,cneura-core:llm-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT,cneura-core:google-gemini-key=GEMINI_API_KEY,cneura-core:google-gemini-key=GOOGLE_API_KEY"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
