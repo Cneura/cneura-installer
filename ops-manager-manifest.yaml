@@ -60,6 +60,10 @@ spec:
               value: "operations"
             - name: COLLECTION_NAME
               value: "researches"
+            - name: RS_MANAGER_HOST
+              value: "cneura-resource-manager-svc"
+            - name: RS_MANAGER_PORT
+              value: "50058"
           volumeMounts:
             - name: secret-volume
               mountPath: /secrets
