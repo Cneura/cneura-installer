@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cneura-operation-manager
+  namespace: cneura-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cneura-operation-manager
+  template:
+    metadata:
+      labels:
+        app: cneura-operation-manager
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:operation-manager-priv-key=PRIV_KEY,cneura-core:operation-manager-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: operation-manager
+          image: shehandezen/cneura-operation-manager:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 50060
+          env:
+            - name: LLM_HOST
+              value: "cneura-llm-svc"
+            - name: LLM_PORT
+              value: "50052"
+            - name: LLM_VENDOR
+              value: "gemini"
+            - name: LLM_EMBED_MODEL
+              value: "models/embedding-001"
+            - name: LLM_MODEL
+              value: "gemini-2.0-flash-lite"
+            - name: STORE_VECTOR
+              value: "true"
+            - name: VECTOR_COLLECTION_NAME
+              value: "research_vectors"
+            - name: CHROMA_URL
+              value: "http://chromadb:8000"
+            - name: DATABASE_NAME
+              value: "operations"
+            - name: COLLECTION_NAME
+              value: "researches"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          livenessProbe:
+            tcpSocket:
+              port: 50060
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 50060
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cneura-operation-manager-svc
+  namespace: cneura-core
+spec:
+  selector:
+    app: cneura-operation-manager
+  ports:
+    - port: 50060
+      targetPort: 50060
+      protocol: TCP
+  type: ClusterIP
