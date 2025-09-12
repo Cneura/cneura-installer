@@ -175,35 +175,26 @@ spec:
             - |
               if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
 
-              mongod --replSet rs0 --bind_ip_all &
+              echo "Waiting for all MongoDB pods to be ready..."
+              for pod in mongodb-0 mongodb-1 mongodb-2; do
+                host="${pod}.mongodb-headless.cneura-core.svc.cluster.local"
+                while ! nslookup "$host" > /dev/null 2>&1; do
+                  echo "Waiting for DNS for $host..."
+                  sleep 3
+                done
+                while ! nc -z "$host" 27017 > /dev/null 2>&1; do
+                  echo "Waiting for $host to accept connections..."
+                  sleep 3
+                done
+              done
+
+              echo "All pods are up and reachable."
 
               if [ "$(hostname)" = "mongodb-0" ]; then
-                echo "🚀 Initializing MongoDB replica set"
-                
-                until mongosh --eval 'db.runCommand({ ping: 1 })'; do
-                  echo "Waiting for MongoDB to start..."
-                  sleep 5
-                done
-
-                ATTEMPTS=0
-                until mongosh --eval '
-                  rs.initiate({
-                    _id: "rs0",
-                    members: [
-                      {_id: 0, host: "mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017"},
-                      {_id: 1, host: "mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017"},
-                      {_id: 2, host: "mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017"}
-                    ]
-                  })
-                '; do
-                  ATTEMPTS=$((ATTEMPTS+1))
-                  echo "rs.initiate() attempt $ATTEMPTS failed, retrying in 5s..."
-                  sleep 5
-                done
-                echo "✅ Replica set initialized!"
+                mongosh --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017"},{_id:1,host:"mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017"},{_id:2,host:"mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017"}]})'
               fi
 
-              wait
+              exec mongod --bind_ip_all
           readinessProbe:
             tcpSocket:
               port: 27017
