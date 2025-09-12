@@ -15,6 +15,25 @@ spec:
       targetPort: 15672
       name: management
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-client
+  namespace: cneura-core
+  labels:
+    app: rabbitmq
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      name: amqp
+    - port: 15672
+      targetPort: 15672
+      name: management
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -121,6 +140,36 @@ spec:
             storage: 1Gi
 
 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-headless
+  namespace: cneura-core
+  labels:
+    app: mongodb
+spec:
+  clusterIP: None
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      name: mongo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: cneura-core
+  labels:
+    app: mongodb
+spec:
+  selector:
+    app: mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+      name: mongo
 ---
 apiVersion: apps/v1
 kind: StatefulSet
