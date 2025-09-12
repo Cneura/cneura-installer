@@ -246,7 +246,7 @@ spec:
               echo "Building replica set config..."
               MEMBERS=""
               for ((i=0; i<REPLICAS; i++)); do
-                HOST="${MONGODB_NAME}-stateful-$i.${MONGODB_NAME}-headless:27017"
+                HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless:27017"
                 if [ $i -eq 0 ]; then
                   MEMBERS="{ _id: $i, host: \"$HOST\" }"
                 else
@@ -255,22 +255,22 @@ spec:
               done
 
               echo "Checking if replica set already initiated..."
-              if mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" --eval "rs.status().ok" >/dev/null 2>&1; then
+              if mongosh --quiet --host "${MONGODB_NAME}-0.${MONGODB_NAME}-headless" --eval "rs.status().ok" >/dev/null 2>&1; then
                 echo "Replica set already initiated. Skipping..."
                 exit 0
               fi
 
               echo "Initiating replica set (no auth yet)..."
-              mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" \
+              mongosh --quiet --host "${MONGODB_NAME}-0.${MONGODB_NAME}-headless" \
                 --eval "rs.initiate({ _id: 'rs0', members: [ $MEMBERS ] })"
 
               echo "Waiting for PRIMARY..."
-              until mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" --eval "rs.isMaster().ismaster" | grep -q true; do
+              until mongosh --quiet --host "${MONGODB_NAME}-0.${MONGODB_NAME}-headless" --eval "rs.isMaster().ismaster" | grep -q true; do
                 sleep 2
               done
 
               echo "Creating root user..."
-              mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" \
+              mongosh --quiet --host "${MONGODB_NAME}-0.${MONGODB_NAME}-headless" \
                 --eval "db.getSiblingDB('admin').createUser({
                           user: '$MONGO_INITDB_ROOT_USERNAME',
                           pwd: '$MONGO_INITDB_ROOT_PASSWORD',
