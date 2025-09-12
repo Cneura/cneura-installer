@@ -95,14 +95,14 @@ spec:
           livenessProbe:
             tcpSocket:
               port: 5672
-            initialDelaySeconds: 30
+            initialDelaySeconds: 180
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
           readinessProbe:
             tcpSocket:
               port: 5672
-            initialDelaySeconds: 30
+            initialDelaySeconds: 180
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
@@ -191,12 +191,12 @@ spec:
           readinessProbe:
             tcpSocket:
               port: 27017
-            initialDelaySeconds: 20
+            initialDelaySeconds: 180
             periodSeconds: 5
           livenessProbe:
             tcpSocket:
               port: 27017
-            initialDelaySeconds: 30
+            initialDelaySeconds: 180
             periodSeconds: 10
   volumeClaimTemplates:
     - metadata:
