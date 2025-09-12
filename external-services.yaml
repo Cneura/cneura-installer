@@ -174,13 +174,19 @@ spec:
           args:
             - |
               if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
-              
+
               mongod --replSet rs0 --bind_ip_all &
-              
+
               if [ "$(hostname)" = "mongodb-0" ]; then
                 echo "🚀 Initializing MongoDB replica set"
-                sleep 10
-                mongo --eval '
+                
+                until mongosh --eval 'db.runCommand({ ping: 1 })'; do
+                  echo "Waiting for MongoDB to start..."
+                  sleep 5
+                done
+
+                ATTEMPTS=0
+                until mongosh --eval '
                   rs.initiate({
                     _id: "rs0",
                     members: [
@@ -189,9 +195,14 @@ spec:
                       {_id: 2, host: "mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017"}
                     ]
                   })
-                '
+                '; do
+                  ATTEMPTS=$((ATTEMPTS+1))
+                  echo "rs.initiate() attempt $ATTEMPTS failed, retrying in 5s..."
+                  sleep 5
+                done
+                echo "✅ Replica set initialized!"
               fi
-              
+
               wait
           readinessProbe:
             tcpSocket:
@@ -211,6 +222,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
+
 ---
 apiVersion: apps/v1
 kind: Deployment
