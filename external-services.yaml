@@ -285,6 +285,9 @@ spec:
             - bash
             - -c
             - |
+              if [ -f /secrets/.env ]; then
+                set -a; . /secrets/.env; set +a
+              fi
               echo "Waiting for all MongoDB pods to be DNS resolvable..."
               for ((i=0; i<REPLICAS; i++)); do
                 HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless"
