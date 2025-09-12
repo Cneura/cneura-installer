@@ -137,9 +137,6 @@ spec:
       volumes:
         - name: secret-volume
           emptyDir: {}
-        - name: mongo-data
-          persistentVolumeClaim:
-            claimName: mongo-pvc
       initContainers:
         - name: secretvault-loader
           image: shehandezen/cneura-vault-agent:latest
@@ -199,6 +196,14 @@ spec:
               port: 27017
             initialDelaySeconds: 30
             periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: mongo-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
