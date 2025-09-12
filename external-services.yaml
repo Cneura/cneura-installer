@@ -63,10 +63,6 @@ spec:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
           env:
-            - name: RABBITMQ_NODENAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             - name: RABBITMQ_USE_LONGNAME
               value: "true"
             - name: CLUSTER_WITH
@@ -74,24 +70,22 @@ spec:
           command: ["/bin/sh","-c"]
           args:
             - |
-              if [ -f /secrets/.env ]; then
-                echo "🚀 Loading secrets from /secrets/.env"
-                set -a; . /secrets/.env; set +a
-              fi
               if [ "$(hostname)" != "rabbitmq-0" ]; then
-                echo "⏳ Joining RabbitMQ cluster with $CLUSTER_WITH"
-                until rabbitmqctl -n $CLUSTER_WITH ping; do
+                echo "⏳ Joining RabbitMQ cluster with rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local"
+                # wait for first node to be ready
+                until rabbitmqctl -n rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local ping; do
                   sleep 5
                 done
                 rabbitmq-server -detached
                 rabbitmqctl stop_app
-                rabbitmqctl join_cluster rabbit@$CLUSTER_WITH
+                rabbitmqctl join_cluster rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local
                 rabbitmqctl start_app
                 tail -f /dev/null
               else
                 echo "🚀 Starting first RabbitMQ node"
                 exec docker-entrypoint.sh rabbitmq-server
               fi
+
           livenessProbe:
             tcpSocket:
               port: 5672
