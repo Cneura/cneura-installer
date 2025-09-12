@@ -174,27 +174,62 @@ spec:
           args:
             - |
               if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
-
-              echo "Waiting for all MongoDB pods to be ready..."
-              for pod in mongodb-0 mongodb-1 mongodb-2; do
-                host="${pod}.mongodb-headless.cneura-core.svc.cluster.local"
-                while ! nslookup "$host" > /dev/null 2>&1; do
-                  echo "Waiting for DNS for $host..."
-                  sleep 3
-                done
-                while ! nc -z "$host" 27017 > /dev/null 2>&1; do
-                  echo "Waiting for $host to accept connections..."
-                  sleep 3
-                done
+              set -e
+              
+              REPLICA_SET_NAME="rs0"
+              NAMESPACE="cneura-core"
+              SERVICE_NAME="mongodb-headless"
+              MONGO_PORT=27017
+              HOSTNAME="$(hostname)"
+              POD_FQDN="${HOSTNAME}.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local"
+              
+              echo "Starting MongoDB init on pod $HOSTNAME..."
+              
+              # 1️⃣ Wait for DNS and MongoDB port on this pod
+              echo "Waiting for DNS and MongoDB port for $POD_FQDN..."
+              until nslookup "$POD_FQDN" >/dev/null 2>&1; do
+                  echo "DNS not ready for $POD_FQDN, retrying in 1s..."
+                  sleep 1
               done
-
-              echo "All pods are up and reachable."
-
-              if [ "$(hostname)" = "mongodb-0" ]; then
-                mongosh --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017"},{_id:1,host:"mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017"},{_id:2,host:"mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017"}]})'
+              
+              until nc -z "$POD_FQDN" $MONGO_PORT >/dev/null 2>&1; do
+                  echo "MongoDB not listening on $POD_FQDN:$MONGO_PORT, retrying in 1s..."
+                  sleep 1
+              done
+              
+              echo "Pod $POD_FQDN is reachable, proceeding..."
+              
+              # 2️⃣ Only the first pod initializes the replica set
+              if [[ "$HOSTNAME" == "mongodb-0" ]]; then
+                  echo "Initializing replica set $REPLICA_SET_NAME..."
+                  mongo --quiet --eval "
+                      rs.initiate({
+                          _id: '$REPLICA_SET_NAME',
+                          members: [
+                              { _id: 0, host: 'mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' },
+                              { _id: 1, host: 'mongodb-1.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' },
+                              { _id: 2, host: 'mongodb-2.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' }
+                          ]
+                      });
+                  "
+              
+                  echo "Waiting for primary to be elected..."
+                  until mongo --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
+                      echo "Primary not elected yet, retrying in 2s..."
+                      sleep 2
+                  done
+              
+                  echo "Replica set $REPLICA_SET_NAME initialized!"
+              else
+                  echo "Waiting for replica set initialization..."
+                  until mongo --quiet --eval "rs.status().ok" >/dev/null 2>&1; do
+                      sleep 2
+                  done
+                  echo "Replica set already initialized, pod $HOSTNAME joined."
               fi
-
-              exec mongod --bind_ip_all
+              
+              # 3️⃣ Keep MongoDB running
+              exec mongod --replSet "$REPLICA_SET_NAME" --bind_ip_all
           readinessProbe:
             tcpSocket:
               port: 27017
