@@ -75,22 +75,27 @@ spec:
               fi
               if [ "$(hostname)" != "rabbitmq-0" ]; then
                 echo "⏳ Waiting for rabbitmq-0 to be ready..."
-                until rabbitmqctl -n rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local status; do
+                until rabbitmq-diagnostics -n rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local status; do
                   echo "Waiting 5s..."
                   sleep 5
                 done
               
-                echo "Joining cluster..."
+                echo "Starting follower node..."
                 rabbitmq-server -detached
+
+                until rabbitmq-diagnostics status; do
+                  echo "Waiting for own node to be ready..."
+                  sleep 5
+                done
+
                 rabbitmqctl stop_app
                 rabbitmqctl join_cluster rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local
                 rabbitmqctl start_app
+
                 tail -f /dev/null
               else
-                echo "🚀 Starting first RabbitMQ node"
                 exec docker-entrypoint.sh rabbitmq-server
               fi
-
 
           livenessProbe:
             tcpSocket:
