@@ -212,6 +212,8 @@ spec:
       containers:
         - name: mongodb
           image: mongo:6.0
+          command: ["mongod"]
+          args: ["--replSet", "rs0", "--bind_ip_all"]
           ports:
             - containerPort: 27017
           volumeMounts:
