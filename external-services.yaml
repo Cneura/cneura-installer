@@ -174,6 +174,7 @@ spec:
           args:
             - |
               if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
+                       
               set -e
               
               REPLICA_SET_NAME="rs0"
@@ -183,25 +184,19 @@ spec:
               HOSTNAME="$(hostname)"
               POD_FQDN="${HOSTNAME}.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local"
               
-              echo "Starting MongoDB init on pod $HOSTNAME..."
+              echo "Starting MongoDB on pod $HOSTNAME..."
               
-              # 1️⃣ Wait for DNS and MongoDB port on this pod
-              echo "Waiting for DNS and MongoDB port for $POD_FQDN..."
-              until nslookup "$POD_FQDN" >/dev/null 2>&1; do
-                  echo "DNS not ready for $POD_FQDN, retrying in 1s..."
-                  sleep 1
-              done
+              # Start mongod in the background
+              mongod --replSet "$REPLICA_SET_NAME" --bind_ip_all &
               
-              until nc -z "$POD_FQDN" $MONGO_PORT >/dev/null 2>&1; do
-                  echo "MongoDB not listening on $POD_FQDN:$MONGO_PORT, retrying in 1s..."
-                  sleep 1
-              done
-              
-              echo "Pod $POD_FQDN is reachable, proceeding..."
-              
-              # 2️⃣ Only the first pod initializes the replica set
+              # Only first pod initializes the replica set
               if [[ "$HOSTNAME" == "mongodb-0" ]]; then
-                  echo "Initializing replica set $REPLICA_SET_NAME..."
+                  echo "Waiting for MongoDB to start on $POD_FQDN..."
+                  until mongo --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+                      sleep 1
+                  done
+              
+                  echo "Initializing replica set..."
                   mongo --quiet --eval "
                       rs.initiate({
                           _id: '$REPLICA_SET_NAME',
@@ -212,24 +207,19 @@ spec:
                           ]
                       });
                   "
-              
-                  echo "Waiting for primary to be elected..."
-                  until mongo --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
-                      echo "Primary not elected yet, retrying in 2s..."
-                      sleep 2
-                  done
-              
-                  echo "Replica set $REPLICA_SET_NAME initialized!"
+                  echo "Primary initialized!"
               else
-                  echo "Waiting for replica set initialization..."
-                  until mongo --quiet --eval "rs.status().ok" >/dev/null 2>&1; do
+                  # Other pods wait for primary
+                  echo "Waiting for primary on mongodb-0..."
+                  until mongo --host "mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local" --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
                       sleep 2
                   done
-                  echo "Replica set already initialized, pod $HOSTNAME joined."
+                  echo "Joining replica set..."
               fi
               
-              # 3️⃣ Keep MongoDB running
-              exec mongod --replSet "$REPLICA_SET_NAME" --bind_ip_all
+              # Keep mongod running
+              wait
+
           readinessProbe:
             tcpSocket:
               port: 27017
