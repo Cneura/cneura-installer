@@ -192,12 +192,12 @@ spec:
               # Only first pod initializes the replica set
               if [[ "$HOSTNAME" == "mongodb-0" ]]; then
                   echo "Waiting for MongoDB to start on $POD_FQDN..."
-                  until mongo --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+                  until mongosh --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
                       sleep 1
                   done
               
                   echo "Initializing replica set..."
-                  mongo --quiet --eval "
+                  mongosh --quiet --eval "
                       rs.initiate({
                           _id: '$REPLICA_SET_NAME',
                           members: [
@@ -211,7 +211,7 @@ spec:
               else
                   # Other pods wait for primary
                   echo "Waiting for primary on mongodb-0..."
-                  until mongo --host "mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local" --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
+                  until mongosh --host "mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local" --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
                       sleep 2
                   done
                   echo "Joining replica set..."
