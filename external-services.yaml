@@ -1,24 +1,28 @@
 apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: rabbitmq-pvc
-  namespace: cneura-core
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: apps/v1
-kind: Deployment
+kind: Service
 metadata:
   name: rabbitmq
   namespace: cneura-core
-  labels:
-    app: rabbitmq
 spec:
-  replicas: 1
+  clusterIP: None  
+  selector:
+    app: rabbitmq
+  ports:
+    - port: 5672
+      targetPort: 5672
+      name: amqp
+    - port: 15672
+      targetPort: 15672
+      name: management
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: cneura-core
+spec:
+  serviceName: rabbitmq
+  replicas: 3
   selector:
     matchLabels:
       app: rabbitmq
@@ -31,15 +35,12 @@ spec:
       volumes:
         - name: secret-volume
           emptyDir: {}
-        - name: rabbitmq-data
-          persistentVolumeClaim:
-            claimName: rabbitmq-pvc
       initContainers:
         - name: secretvault-loader
           image: shehandezen/cneura-vault-agent:latest
           env:
             - name: SECRET_IDS
-              value: "cneura-core:rabbitmq-username=RABBITMQ_DEFAULT_USER,cneura-core:rabbitmq-password=RABBITMQ_DEFAULT_PASS"
+              value: "cneura-core:rabbitmq-username=RABBITMQ_DEFAULT_USER,cneura-core:rabbitmq-password=RABBITMQ_DEFAULT_PASS,cneura-core:rabbitmq-cookie=RABBITMQ_ERLANG_COOKIE"
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -50,18 +51,24 @@ spec:
           volumeMounts:
             - name: secret-volume
               mountPath: /secrets
-
       containers:
         - name: rabbitmq
           image: rabbitmq:3.13-management
           ports:
-            - containerPort: 5672   # AMQP
-            - containerPort: 15672  # Management UI
+            - containerPort: 5672   
+            - containerPort: 15672  
           volumeMounts:
             - name: secret-volume
               mountPath: /secrets
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
+          env:
+            - name: 
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CLUSTER_WITH
+              value: "rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local"
           command: ["/bin/sh","-c"]
           args:
             - |
@@ -69,7 +76,20 @@ spec:
                 echo "🚀 Loading secrets from /secrets/.env"
                 set -a; . /secrets/.env; set +a
               fi
-              exec docker-entrypoint.sh rabbitmq-server
+              if [ "$(hostname)" != "rabbitmq-0" ]; then
+                echo "⏳ Joining RabbitMQ cluster with $CLUSTER_WITH"
+                until rabbitmqctl -n $CLUSTER_WITH ping; do
+                  sleep 5
+                done
+                rabbitmq-server -detached
+                rabbitmqctl stop_app
+                rabbitmqctl join_cluster rabbit@$CLUSTER_WITH
+                rabbitmqctl start_app
+                tail -f /dev/null
+              else
+                echo "🚀 Starting first RabbitMQ node"
+                exec docker-entrypoint.sh rabbitmq-server
+              fi
           livenessProbe:
             tcpSocket:
               port: 5672
@@ -84,52 +104,34 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: rabbitmq
-  namespace: cneura-core
-spec:
-  selector:
-    app: rabbitmq
-  ports:
-    - port: 5672
-      targetPort: 5672
-      name: amqp
-    - port: 15672
-      targetPort: 15672
-      name: management
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 1Gi
+
 
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: mongo-pvc
-  namespace: cneura-core
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: mongodb
   namespace: cneura-core
-  labels: 
-    app: mongodb 
+  labels:
+    app: mongodb
 spec:
-  replicas: 1
+  serviceName: mongodb-headless
+  replicas: 3
   selector:
-    matchLabels: 
-      app: mongodb 
+    matchLabels:
+      app: mongodb
   template:
     metadata:
-      labels: 
-        app: mongodb 
+      labels:
+        app: mongodb
     spec:
       serviceAccountName: vault-loader-sa
       volumes:
@@ -154,7 +156,6 @@ spec:
           volumeMounts:
             - name: secret-volume
               mountPath: /secrets
-
       containers:
         - name: mongodb
           image: mongo:6.0
@@ -168,38 +169,36 @@ spec:
           command: ["/bin/sh","-c"]
           args:
             - |
-              if [ -f /secrets/.env ]; then
-                echo "🚀 Loading secrets from /secrets/.env"
-                set -a; . /secrets/.env; set +a
+              if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
+              
+              mongod --replSet rs0 --bind_ip_all &
+              
+              if [ "$(hostname)" = "mongodb-0" ]; then
+                echo "🚀 Initializing MongoDB replica set"
+                sleep 10
+                mongo --eval '
+                  rs.initiate({
+                    _id: "rs0",
+                    members: [
+                      {_id: 0, host: "mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017"},
+                      {_id: 1, host: "mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017"},
+                      {_id: 2, host: "mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017"}
+                    ]
+                  })
+                '
               fi
-              exec /usr/local/bin/docker-entrypoint.sh mongod --bind_ip_all
-          livenessProbe:
-            tcpSocket:
-              port: 27017
-            initialDelaySeconds: 60
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 6
+              
+              wait
           readinessProbe:
             tcpSocket:
               port: 27017
-            initialDelaySeconds: 60
+            initialDelaySeconds: 20
             periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mongodb
-  namespace: cneura-core
-spec:
-  selector: 
-    app: mongodb 
-  ports:
-    - port: 27017
-      targetPort: 27017
-      name: mongo
+          livenessProbe:
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 30
+            periodSeconds: 10
 ---
 apiVersion: apps/v1
 kind: Deployment
