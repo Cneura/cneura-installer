@@ -236,7 +236,7 @@ spec:
             - |
               echo "Waiting for all MongoDB pods to be DNS resolvable..."
               for ((i=0; i<REPLICAS; i++)); do
-                HOST="${MONGODB_NAME}-stateful-$i.${MONGODB_NAME}-headless"
+                HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless"
                 until getent hosts $HOST >/dev/null 2>&1; do
                   echo "Waiting for $HOST..."
                   sleep 2
