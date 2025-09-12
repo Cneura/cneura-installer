@@ -170,56 +170,6 @@ spec:
               mountPath: /secrets
             - name: mongo-data
               mountPath: /data/db
-          command: ["/bin/sh","-c"]
-          args:
-            - |
-              if [ -f /secrets/.env ]; then set -a; . /secrets/.env; set +a; fi
-                       
-              set -e
-              
-              REPLICA_SET_NAME="rs0"
-              NAMESPACE="cneura-core"
-              SERVICE_NAME="mongodb-headless"
-              MONGO_PORT=27017
-              HOSTNAME="$(hostname)"
-              POD_FQDN="${HOSTNAME}.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local"
-              
-              echo "Starting MongoDB on pod $HOSTNAME..."
-              
-              # Start mongod in the background
-              mongod --replSet "$REPLICA_SET_NAME" --bind_ip_all &
-              
-              # Only first pod initializes the replica set
-              if [[ "$HOSTNAME" == "mongodb-0" ]]; then
-                  echo "Waiting for MongoDB to start on $POD_FQDN..."
-                  until mongosh --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
-                      sleep 1
-                  done
-              
-                  echo "Initializing replica set..."
-                  mongosh --quiet --eval "
-                      rs.initiate({
-                          _id: '$REPLICA_SET_NAME',
-                          members: [
-                              { _id: 0, host: 'mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' },
-                              { _id: 1, host: 'mongodb-1.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' },
-                              { _id: 2, host: 'mongodb-2.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local:27017' }
-                          ]
-                      });
-                  "
-                  echo "Primary initialized!"
-              else
-                  # Other pods wait for primary
-                  echo "Waiting for primary on mongodb-0..."
-                  until mongosh --host "mongodb-0.${SERVICE_NAME}.${NAMESPACE}.svc.cluster.local" --quiet --eval "rs.isMaster().ismaster" | grep true >/dev/null; do
-                      sleep 2
-                  done
-                  echo "Joining replica set..."
-              fi
-              
-              # Keep mongod running
-              wait
-
           readinessProbe:
             tcpSocket:
               port: 27017
@@ -238,6 +188,96 @@ spec:
         resources:
           requests:
             storage: 1Gi
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-replica-init
+  namespace: cneura-core
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongodb-username=MONGO_INITDB_ROOT_USERNAME,cneura-core:mongodb-password=MONGO_INITDB_ROOT_PASSWORD,cneura-core:auth-db=MONGO_INITDB_DATABASE"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: init-replica-set
+          image: mongo:6.0
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          env:
+            - name: REPLICAS
+              value: "3"
+            - name: MONGODB_NAME
+              value: "mongodb"
+          command:
+            - bash
+            - -c
+            - |
+              echo "Waiting for all MongoDB pods to be DNS resolvable..."
+              for ((i=0; i<REPLICAS; i++)); do
+                HOST="${MONGODB_NAME}-stateful-$i.${MONGODB_NAME}-headless"
+                until getent hosts $HOST >/dev/null 2>&1; do
+                  echo "Waiting for $HOST..."
+                  sleep 2
+                done
+              done
+
+              echo "Building replica set config..."
+              MEMBERS=""
+              for ((i=0; i<REPLICAS; i++)); do
+                HOST="${MONGODB_NAME}-stateful-$i.${MONGODB_NAME}-headless:27017"
+                if [ $i -eq 0 ]; then
+                  MEMBERS="{ _id: $i, host: \"$HOST\" }"
+                else
+                  MEMBERS="$MEMBERS, { _id: $i, host: \"$HOST\" }"
+                fi
+              done
+
+              echo "Checking if replica set already initiated..."
+              if mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" --eval "rs.status().ok" >/dev/null 2>&1; then
+                echo "Replica set already initiated. Skipping..."
+                exit 0
+              fi
+
+              echo "Initiating replica set (no auth yet)..."
+              mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" \
+                --eval "rs.initiate({ _id: 'rs0', members: [ $MEMBERS ] })"
+
+              echo "Waiting for PRIMARY..."
+              until mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" --eval "rs.isMaster().ismaster" | grep -q true; do
+                sleep 2
+              done
+
+              echo "Creating root user..."
+              mongosh --quiet --host "${MONGODB_NAME}-stateful-0.${MONGODB_NAME}-headless" \
+                --eval "db.getSiblingDB('admin').createUser({
+                          user: '$MONGO_INITDB_ROOT_USERNAME',
+                          pwd: '$MONGO_INITDB_ROOT_PASSWORD',
+                          roles: [ { role: 'root', db: 'admin' } ]
+                        })"
+
+              echo "MongoDB replica set initialized with root user."
 
 ---
 apiVersion: apps/v1
