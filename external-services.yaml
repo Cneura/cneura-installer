@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq
+  name: rabbitmq-headless
   namespace: cneura-core
 spec:
   clusterIP: None  
@@ -18,7 +18,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: rabbitmq-client
+  name: rabbitmq
   namespace: cneura-core
   labels:
     app: rabbitmq
@@ -86,35 +86,47 @@ spec:
               value: "true"
             - name: CLUSTER_WITH
               value: "rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local"
-          command: ["/bin/sh","-c"]
-          args:
-            - |
-              if [ -f /secrets/.env ]; then
-                set -a; . /secrets/.env; set +a
-              fi
-              if [ "$(hostname)" != "rabbitmq-0" ]; then
-                echo "⏳ Waiting for rabbitmq-0 to be ready..."
-                until rabbitmq-diagnostics -n rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local status; do
-                  echo "Waiting 5s..."
-                  sleep 5
-                done
+            - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+              value: "-rabbit cluster_formation.peer_discovery_backend=rabbit_peer_discovery_k8s -rabbit cluster_formation.k8s.host=rabbitmq-headless"
+            - name: K8S_SERVICE_NAME
+              value: "rabbitmq-headles"
+            - name: RABBITMQ_CLUSTER_PARTITION_HANDLING
+              value: "autoheal"
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_NODENAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # command: ["/bin/sh","-c"]
+          # args:
+          #   - |
+          #     if [ -f /secrets/.env ]; then
+          #       set -a; . /secrets/.env; set +a
+          #     fi
+          #     if [ "$(hostname)" != "rabbitmq-0" ]; then
+          #       echo "⏳ Waiting for rabbitmq-0 to be ready..."
+          #       until rabbitmq-diagnostics -n rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local status; do
+          #         echo "Waiting 5s..."
+          #         sleep 5
+          #       done
               
-                echo "Starting follower node..."
-                rabbitmq-server -detached
+          #       echo "Starting follower node..."
+          #       rabbitmq-server -detached
 
-                until rabbitmq-diagnostics status; do
-                  echo "Waiting for own node to be ready..."
-                  sleep 5
-                done
+          #       until rabbitmq-diagnostics status; do
+          #         echo "Waiting for own node to be ready..."
+          #         sleep 5
+          #       done
 
-                rabbitmqctl stop_app
-                rabbitmqctl join_cluster rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local
-                rabbitmqctl start_app
+          #       rabbitmqctl stop_app
+          #       rabbitmqctl join_cluster rabbit@rabbitmq-0.rabbitmq.cneura-core.svc.cluster.local
+          #       rabbitmqctl start_app
 
-                tail -f /dev/null
-              else
-                exec docker-entrypoint.sh rabbitmq-server
-              fi
+          #       tail -f /dev/null
+          #     else
+          #       exec docker-entrypoint.sh rabbitmq-server
+          #     fi
 
           livenessProbe:
             tcpSocket:
