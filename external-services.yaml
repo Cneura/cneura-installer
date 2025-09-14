@@ -409,10 +409,7 @@ spec:
                 set -a; . /secrets/.env; set +a
               fi
 
-              export ME_CONFIG_MONGODB_URL="mongodb://${ME_CONFIG_MONGODB_ADMINUSERNAME}:${ME_CONFIG_MONGODB_ADMINPASSWORD}@\
-                mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017,\
-                mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017,\
-                mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017/?replicaSet=rs0&authSource=admin"
+              export ME_CONFIG_MONGODB_URL="mongodb://${ME_CONFIG_MONGODB_ADMINUSERNAME}:${ME_CONFIG_MONGODB_ADMINPASSWORD}@mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017,mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017,mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017/?replicaSet=rs0&authSource=admin"
 
               echo "✅ Using replica set connection: $ME_CONFIG_MONGODB_URL"
 
