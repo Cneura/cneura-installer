@@ -399,8 +399,6 @@ spec:
             - name: secret-volume
               mountPath: /secrets
           env:
-            - name: ME_CONFIG_MONGODB_SERVER
-              value: "mongodb"
             - name: ME_CONFIG_BASICAUTH
               value: "false"
           command: ["/bin/sh","-c"]
@@ -410,7 +408,14 @@ spec:
                 echo "🚀 Loading secrets from /secrets/.env"
                 set -a; . /secrets/.env; set +a
               fi
-              # Start mongo-express (binary is on PATH)
+
+              export ME_CONFIG_MONGODB_URL="mongodb://${ME_CONFIG_MONGODB_ADMINUSERNAME}:${ME_CONFIG_MONGODB_ADMINPASSWORD}@\
+                mongodb-0.mongodb-headless.cneura-core.svc.cluster.local:27017,\
+                mongodb-1.mongodb-headless.cneura-core.svc.cluster.local:27017,\
+                mongodb-2.mongodb-headless.cneura-core.svc.cluster.local:27017/?replicaSet=rs0&authSource=admin"
+
+              echo "✅ Using replica set connection: $ME_CONFIG_MONGODB_URL"
+
               exec tini -- node app
           livenessProbe:
             tcpSocket:
@@ -426,6 +431,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+
 ---
 apiVersion: v1
 kind: Service
