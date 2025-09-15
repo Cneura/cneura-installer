@@ -225,7 +225,11 @@ spec:
         - name: mongodb
           image: mongo:6.0
           command: ["mongod"]
-          args: ["--replSet", "rs0", "--bind_ip_all"]
+          args:
+            - "--replSet=rs0"
+            - "--bind_ip_all"
+            - "--auth"                # enable authentication
+            - "--keyFile=/etc/secrets/keyfile" 
           ports:
             - containerPort: 27017
           volumeMounts:
@@ -297,48 +301,44 @@ spec:
             - bash
             - -c
             - |
+              set -e
               if [ -f /secrets/.env ]; then
                 set -a; . /secrets/.env; set +a
               fi
-      
+
               MONGO_HOST="${MONGODB_NAME}-0.${MONGODB_NAME}-headless:27017"
-      
-              # Wait for first pod to be ready
-              echo "Waiting for MongoDB primary pod to be reachable..."
+
+              echo "Waiting for MongoDB to be reachable..."
               until mongosh --quiet --host "$MONGO_HOST" --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
                 sleep 2
               done
-      
-              # Check if replica set is already initialized
-              RS_STATUS=$(mongosh --quiet --host "$MONGO_HOST" --eval "rs.status()" 2>&1 || echo "not-initialized")
-              if [[ "$RS_STATUS" != "not-initialized" ]] && ! echo "$RS_STATUS" | grep -q "not yet initialized"; then
-                echo "Replica set already initialized. Skipping rs.initiate..."
-              else
+
+              RS_OK=$(mongosh --quiet --host "$MONGO_HOST" --eval "try{rs.status().ok}catch(e){print('not-initialized')}")
+              if [ "$RS_OK" != "1" ]; then
                 echo "Initializing replica set..."
-                MEMBERS=""
-                for ((i=0; i<REPLICAS; i++)); do
+                MEMBERS=$(for ((i=0; i<REPLICAS; i++)); do
                   HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless:27017"
-                  if [ $i -eq 0 ]; then
-                    MEMBERS="{ _id: $i, host: \"$HOST\" }"
-                  else
-                    MEMBERS="$MEMBERS, { _id: $i, host: \"$HOST\" }"
-                  fi
-                done
-      
+                  echo "{ _id: $i, host: \"$HOST\" }"
+                done | paste -sd,)
+
                 mongosh --quiet --host "$MONGO_HOST" \
                   --eval "rs.initiate({ _id: 'rs0', members: [ $MEMBERS ] })"
-      
-                # Wait until PRIMARY is elected
-                echo "Waiting for PRIMARY..."
-                until mongosh --quiet --host "$MONGO_HOST" --eval "rs.isMaster().ismaster" | grep -q true; do
-                  sleep 2
-                done
+              else
+                echo "Replica set already initialized."
               fi
-      
-              # Check if root user exists
-              USER_EXISTS=$(mongosh --quiet --host "$MONGO_HOST" --eval "db.getSiblingDB('admin').getUser('$MONGO_INITDB_ROOT_USERNAME')" 2>/dev/null || echo "")
-              if [[ -z "$USER_EXISTS" ]]; then
-                echo "Creating root user..."
+
+              echo "Waiting for PRIMARY..."
+              until mongosh --quiet --host "$MONGO_HOST" --eval "db.hello().isWritablePrimary" | grep -q true; do
+                sleep 2
+              done
+
+              echo "Ensuring root user exists..."
+              USER_EXISTS=$(mongosh --quiet --host "$MONGO_HOST" \
+                -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
+                --authenticationDatabase admin \
+                --eval "db.getSiblingDB('admin').getUser('$MONGO_INITDB_ROOT_USERNAME')" || true)
+
+              if [[ -z "$USER_EXISTS" || "$USER_EXISTS" == "null" ]]; then
                 mongosh --quiet --host "$MONGO_HOST" \
                   --eval "db.getSiblingDB('admin').createUser({
                             user: '$MONGO_INITDB_ROOT_USERNAME',
@@ -347,9 +347,9 @@ spec:
                           })"
                 echo "Root user created."
               else
-                echo "Root user already exists. Skipping..."
+                echo "Root user already exists."
               fi
-      
+
               echo "MongoDB replica set is ready."
 
 ---
