@@ -299,43 +299,49 @@ spec:
             - bash
             - -c
             - |
+              #!/bin/bash
               set -e
+              
+              # Load secrets if present
               if [ -f /secrets/.env ]; then
                 set -a; . /secrets/.env; set +a
               fi
-
+              
               MONGO_HOST="${MONGODB_NAME}-0.${MONGODB_NAME}-headless:27017"
-
+              
               echo "Waiting for MongoDB to be reachable..."
               until mongosh --quiet --host "$MONGO_HOST" --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
                 sleep 2
               done
-
-              RS_OK=$(mongosh --quiet --host "$MONGO_HOST" --eval "try{rs.status().ok}catch(e){print('not-initialized')}")
-              if [ "$RS_OK" != "1" ]; then
+              
+              # Check replica set status
+              RS_STATUS=$(mongosh --quiet --host "$MONGO_HOST" \
+                --eval "try{rs.status().ok}catch(e){if(e.code==94){print('not-initialized')}else{print('already-initialized')}}")
+              
+              if [ "$RS_STATUS" = "not-initialized" ]; then
                 echo "Initializing replica set..."
                 MEMBERS=$(for ((i=0; i<REPLICAS; i++)); do
                   HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless:27017"
                   echo "{ _id: $i, host: \"$HOST\" }"
                 done | paste -sd,)
-
+              
                 mongosh --quiet --host "$MONGO_HOST" \
                   --eval "rs.initiate({ _id: 'rs0', members: [ $MEMBERS ] })"
               else
                 echo "Replica set already initialized."
               fi
-
+              
               echo "Waiting for PRIMARY..."
               until mongosh --quiet --host "$MONGO_HOST" --eval "db.hello().isWritablePrimary" | grep -q true; do
                 sleep 2
               done
-
+              
               echo "Ensuring root user exists..."
               USER_EXISTS=$(mongosh --quiet --host "$MONGO_HOST" \
                 -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
                 --authenticationDatabase admin \
                 --eval "db.getSiblingDB('admin').getUser('$MONGO_INITDB_ROOT_USERNAME')" || true)
-
+              
               if [[ -z "$USER_EXISTS" || "$USER_EXISTS" == "null" ]]; then
                 mongosh --quiet --host "$MONGO_HOST" \
                   --eval "db.getSiblingDB('admin').createUser({
@@ -347,8 +353,9 @@ spec:
               else
                 echo "Root user already exists."
               fi
-
+              
               echo "MongoDB replica set is ready."
+
 
 ---
 apiVersion: apps/v1
