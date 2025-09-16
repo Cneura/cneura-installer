@@ -1,3 +1,45 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ops-manager-sa
+  namespace: cneura-core
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ops-manager-role
+  namespace: cneura-core
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "services", "persistentvolumeclaims", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ops-manager-rolebinding
+  namespace: cneura-core
+subjects:
+  - kind: ServiceAccount
+    name: ops-manager-sa
+    namespace: cneura-core
+roleRef:
+  kind: Role
+  name: ops-manager-role
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,7 +55,7 @@ spec:
       labels:
         app: cneura-operation-manager
     spec:
-      serviceAccountName: vault-loader-sa
+      serviceAccountName: ops-manager-sa
       volumes:
         - name: secret-volume
           emptyDir: {}
