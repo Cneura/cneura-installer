@@ -309,30 +309,34 @@ spec:
               
               MONGO_HOST="${MONGODB_NAME}-0.${MONGODB_NAME}-headless:27017"
               
-              echo "Waiting for MongoDB to be reachable..."
+              echo "Waiting for mongodb-0 to be reachable..."
               until mongosh --quiet --host "$MONGO_HOST" --eval "db.adminCommand('ping')" >/dev/null 2>&1; do
                 sleep 2
               done
               
-              # Check replica set status
-              RS_STATUS=$(mongosh --quiet --host "$MONGO_HOST" \
-                --eval "try{rs.status().ok}catch(e){if(e.code==94){print('not-initialized')}else{print('already-initialized')}}")
+              echo "Forcefully initializing replica set with mongodb-0 as PRIMARY..."
               
-              if [ "$RS_STATUS" = "not-initialized" ]; then
-                echo "Initializing replica set..."
-                MEMBERS=$(for ((i=0; i<REPLICAS; i++)); do
-                  HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless:27017"
-                  echo "{ _id: $i, host: \"$HOST\" }"
-                done | paste -sd,)
+              MEMBERS=$(for ((i=0; i<REPLICAS; i++)); do
+                HOST="${MONGODB_NAME}-$i.${MONGODB_NAME}-headless:27017"
+                echo "{ _id: $i, host: \"$HOST\" }"
+              done | paste -sd,)
               
-                mongosh --quiet --host "$MONGO_HOST" \
-                  --eval "rs.initiate({ _id: 'rs0', members: [ $MEMBERS ] })"
-              else
-                echo "Replica set already initialized."
-              fi
+              mongosh --quiet --host "$MONGO_HOST" \
+                --eval "try {
+                          rs.initiate({
+                            _id: 'rs0',
+                            members: [ $MEMBERS ]
+                          })
+                        } catch(e) {
+                          print('ReplicaSet already initialized, forcing reconfig...');
+                          cfg = rs.conf();
+                          cfg.members = [ $MEMBERS ];
+                          rs.reconfig(cfg, {force: true});
+                        }"
               
-              echo "Waiting for PRIMARY..."
-              until mongosh --quiet --host "$MONGO_HOST" --eval "db.hello().isWritablePrimary" | grep -q true; do
+              echo "Waiting for mongodb-0 to become PRIMARY..."
+              until mongosh --quiet --host "$MONGO_HOST" \
+                --eval "db.hello().isWritablePrimary" | grep -q true; do
                 sleep 2
               done
               
@@ -354,7 +358,8 @@ spec:
                 echo "Root user already exists."
               fi
               
-              echo "MongoDB replica set is ready."
+              echo "MongoDB replica set is ready with mongodb-0 as PRIMARY."
+
 
 
 ---
