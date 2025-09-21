@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cneura-agent-registry
+  namespace: cneura-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cneura-agent-registry
+  template:
+    metadata:
+      labels:
+        app: cneura-agent-registry
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:agent-registry-priv-key=PRIV_KEY,cneura-core:agent-registry-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: agent-registry
+          image: shehandezen/cneura-agent-registry:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 50058
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          livenessProbe:
+            tcpSocket:
+              port: 50058
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 50058
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cneura-agent-registry-svc
+  namespace: cneura-core
+spec:
+  selector:
+    app: cneura-agent-registry
+  ports:
+    - port: 50058
+      targetPort: 50058
+      protocol: TCP
+  type: ClusterIP
