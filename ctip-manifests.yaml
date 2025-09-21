@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cneura-ctip
+  namespace: cneura-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cneura-ctip
+  template:
+    metadata:
+      labels:
+        app: cneura-ctip
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:ctip-priv-key=PRIV_KEY,cneura-core:ctip-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: ctip
+          image: shehandezen/cneura-ctip:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 50057
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          livenessProbe:
+            tcpSocket:
+              port: 50057
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 50057
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cneura-ctip-svc
+  namespace: cneura-core
+spec:
+  selector:
+    app: cneura-ctip
+  ports:
+    - port: 50057
+      targetPort: 50057
+      protocol: TCP
+  type: ClusterIP
