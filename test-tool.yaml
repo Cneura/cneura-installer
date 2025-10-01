@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cneura-cal
+  namespace: cneura-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cneura-cal
+  template:
+    metadata:
+      labels:
+        app: cneura-cal
+    spec:
+      serviceAccountName: vault-loader-sa
+      volumes:
+        - name: secret-volume
+          emptyDir: {}
+      initContainers:
+        - name: secretvault-loader
+          image: shehandezen/cneura-vault-agent:latest
+          env:
+            - name: SECRET_IDS
+              value: "cneura-core:mongo-uri=MONGO_URI,cneura-core:cal-priv-key=PRIV_KEY,cneura-core:cal-security-group=SECURITY_GROUP,cneura-core:cneura-auth-host=AUTH_HOST,cneura-core:cneura-auth-port=AUTH_PORT"
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: vault-master-key
+                  key: master.key
+            - name: OUTPUT_PATH
+              value: "/secrets/.env"
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+      containers:
+        - name: cal
+          image: shehandezen/cneura-tool-base:latest
+          imagePullPolicy: Always
+          env:
+          - name: PORT
+            value: "50088"
+          - name: TOOL_ID
+            value: "test-123"
+          - name: TOOL_VERSION
+            value: "1.0.0"
+          - name: DATABASE_NAME
+            value: "tools"
+          - name: COLLECTION_NAME
+            value: "tools"
+          - name: ENABLE_METRICE
+            value: "true"
+          - name: TOOL_CODE_B64
+            value: "Y2xhc3MgTWF0aFRvb2w6DQogICAgIiIiDQogICAgUGVyZm9ybXMgYmFzaWMgbWF0aCBvcGVyYXRpb25zOiBhZGQsIHN1YnRyYWN0LCBtdWx0aXBseSwgZGl2aWRlLg0KICAgICIiIg0KDQogICAgZGVmIHJ1bihzZWxmLCBvcGVyYXRpb246IHN0ciwgYTogZmxvYXQsIGI6IGZsb2F0KSAtPiBkaWN0Og0KICAgICAgICBpZiBvcGVyYXRpb24gPT0gImFkZCI6DQogICAgICAgICAgICByZXN1bHQgPSBhICsgYg0KICAgICAgICBlbGlmIG9wZXJhdGlvbiA9PSAic3VidHJhY3QiOg0KICAgICAgICAgICAgcmVzdWx0ID0gYSAtIGINCiAgICAgICAgZWxpZiBvcGVyYXRpb24gPT0gIm11bHRpcGx5IjoNCiAgICAgICAgICAgIHJlc3VsdCA9IGEgKiBiDQogICAgICAgIGVsaWYgb3BlcmF0aW9uID09ICJkaXZpZGUiOg0KICAgICAgICAgICAgaWYgYiA9PSAwOg0KICAgICAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoIkRpdmlzaW9uIGJ5IHplcm8gaXMgbm90IGFsbG93ZWQiKQ0KICAgICAgICAgICAgcmVzdWx0ID0gYSAvIGINCiAgICAgICAgZWxzZToNCiAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoZiJVbnN1cHBvcnRlZCBvcGVyYXRpb246IHtvcGVyYXRpb259IikNCg0KICAgICAgICByZXR1cm4geyJvcGVyYXRpb24iOiBvcGVyYXRpb24sICJhIjogYSwgImIiOiBiLCAicmVzdWx0IjogcmVzdWx0fQ0KDQo="
+          ports:
+            - containerPort: 50088
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /secrets
+          livenessProbe:
+            tcpSocket:
+              port: 50088
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: 50088
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cneura-cal-svc
+  namespace: cneura-core
+spec:
+  selector:
+    app: cneura-cal
+  ports:
+    - port: 50088
+      targetPort: 50088
+      protocol: TCP
+  type: ClusterIP
