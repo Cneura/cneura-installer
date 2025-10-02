@@ -38,7 +38,7 @@ spec:
           image: shehandezen/cneura-tool-base:latest
           imagePullPolicy: Always
           env:
-          - name: PORT
+          - name: TOOL_PORT
             value: "50088"
           - name: TOOL_ID
             value: "test-123"
